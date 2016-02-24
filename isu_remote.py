@@ -21,6 +21,7 @@
 from html.parser import *
 from urllib.request import *
 from subprocess import *
+from sys import *
 
 
 user_info = "user_config.py"
@@ -82,32 +83,58 @@ if(username == ""):
 lowestLoadServer = "none"
 serverLoadPairs = []
 class MyHTMLParser(HTMLParser):
-    encounteredContent = 0
+    encounteredContent = False
+    readingServerName = False
+    readingServerLoad = False
+    currentServerName = ""
     lowestLoad = 100
     global lowestLoadServer
     def handle_starttag(self,tag,attrs):
-        if(tag == "div"):
-            if(attrs[0][1] == "content"):
-                self.encounteredContent = 4
-    def handle_comment(self, data):
-        global lowestLoadServer
-        if(self.encounteredContent):
-            self.encounteredContent = self.encounteredContent - 1
-            if(self.encounteredContent == 0):
-                servers = data.split("\\n")
-                for i in servers:
-                    parts = i.split(',')
-                    if(len(parts) > 6):
-                        load = float(parts[4].split()[2]) - float(parts[2])
-                        server = parts[0].lstrip("\'b\'")
-                        server = parts[0].lstrip("\"b\'")
-                        if(self.lowestLoad > load and not server.startswith("linuxremote")):
-                            self.lowestLoad = load
-                            lowestLoadServer = server
-                        serverLoadPairs.append((load,server))
+        if(tag == "td"):
+            if(len(attrs) == 0):
+                self.readingServerName = True
+            if(len(attrs) == 2):
+                self.readingServerLoad = True
+    def handle_data(self, data):
+        if(self.readingServerName):
+            self.currentServerName = data
+        if(self.readingServerLoad):
+            load = 4
+            if(data == "Low"):
+                load = 1
+            elif(data == "Medium"):
+                load = 2
+            elif(data == "High"):
+                load = 3
+            serverLoadPairs.append((load,self.currentServerName))
+
+    def handle_endtag(self,tag):
+        if(tag == "td"):
+            self.readingServerName = False
+            self.readingServerLoad = False
+
+
+            #print(attrs)
+#    def handle_comment(self, data):
+#        print("at comment")
+#        global lowestLoadServer
+#        if(self.encounteredContent):
+#            self.encounteredContent = self.encounteredContent - 1
+#            if(self.encounteredContent == 0):
+#                servers = data.split("\\n")
+#                for i in servers:
+#                    parts = i.split(',')
+#                    if(len(parts) > 6):
+#                        load = float(parts[4].split()[2]) - float(parts[2])
+#                        server = parts[0].lstrip("\'b\'")
+#                        server = parts[0].lstrip("\"b\'")
+#                        if(self.lowestLoad > load and not server.startswith("linuxremote")):
+#                            self.lowestLoad = load
+#                            lowestLoadServer = server
+#                        serverLoadPairs.append((load,server))
 
 try:
-    f = urlopen("http://it.engineering.iastate.edu/remote")
+    f = urlopen("http://it.engineering.iastate.edu/ece-remote-servers")
 except URLError:
     print("Unable to open it.engineering.iastate.edu. Try connecting to the internet.")
 
@@ -124,17 +151,26 @@ parser.feed(feed)
 serverLoadPairs.sort()
 i = 0
 
+if(len(serverLoadPairs)==0):
+    print("No servers listed, they might be down.")
+    pass
+
 for pair in serverLoadPairs:
     if(i == 3):
         break;
     login = username + "@" + pair[1];
+    print("attempting to attach to " + login)
     i = i + 1
     try:
         if(password == ""):
             call(["ssh", "-X", login])
         else:
-            call(["sshpass", "-p", password, "ssh", "-X", login])
-            pass
+            ret = call(["sshpass", "-p", password, "ssh", "-X", login])
+            if(ret == 6):
+                call(["ssh", "-X", login])
+            elif(ret == 5):
+                print("Incorrect password")
+
         break
     except KeyboardInterrupt:
         print("Trying next server")
